@@ -1,0 +1,782 @@
+{% extends "urly_app/base.html" %}
+
+{% block title %}URL Shortener{% endblock %}
+
+{% block body_header %}<h1><a href="/shorten">URLy</a> <small>&mdash; shorten any URL &mdash; and optionally track its use</small></h1>{% endblock %}
+  
+{% block content %}
+
+<style>
+.form-row {
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 1em;
+    margin-bottom: 1em;
+}
+#btn_rebuild_tracking_parameters {
+    padding: 1px 3px;
+    background: #ffc;
+    color: #079;
+    font-size: 108%;
+    font-weight: bolder;
+}
+#availability_indicator_block {
+    padding: 0.9em;
+}
+INPUT.borderless {
+    border: none;
+}
+</style>
+<script>
+function clearForm(form) {
+    // clearing inputs
+    var inputs = form.getElementsByTagName('input');
+    for (var i = 0; i<inputs.length; i++) {
+        switch (inputs[i].type) {
+            // case 'hidden':
+            case 'text':
+                inputs[i].value = '';
+                break;
+            case 'radio':
+            case 'checkbox':
+                inputs[i].checked = false;   
+        }
+    }
+
+    // clearing selects
+    var selects = form.getElementsByTagName('select');
+    for (var i = 0; i<selects.length; i++)
+        selects[i].selectedIndex = 0;
+
+    // clearing textarea
+    var text= form.getElementsByTagName('textarea');
+    for (var i = 0; i<text.length; i++)
+        text[i].innerHTML= '';
+
+    return false;
+}
+
+
+function toggle_pe_sld_manually(i){
+    var $sel2 = $('#short_base OPTION[value="http://2s.pe/"]');
+    var $sel4 = $('#short_base OPTION[value="http://4s.pe/"]');
+    if(i==2){
+        $sel2.show();
+        $sel4.hide();
+    }
+    if(i==4){
+        $sel4.show();
+        $sel2.hide();
+    }
+}
+
+
+function toggle_pe_sld_for_url(u){
+    u = u || $('#canonical_url').val();
+    toggle_pe_sld_manually( (u.toLowerCase().match(/^https?:\/\/www\.spe\.org+\//))? 2 : 4 );
+}
+
+
+function target_url_verification_helper(){
+    var canonical_url=$('#canonical_url').val();
+    var msg='';
+    if( canonical_url.trim().length != canonical_url.length ){
+        msg = 'looks like some whitespace is trying to creep in; please fix that';
+        canonical_url = canonical_url.trim();
+        $('#canonical_url').val(canonical_url);
+    }
+    if( typeof canonical_url == 'string' && canonical_url.length>0 ){
+    // we have some input, without leading or trailing whitespace
+        if( canonical_url.toLowerCase().match(/^(https?:|mailto:|tel:\+|data:).+/) ) {
+
+            // toggle_pe_sld_manually( (canonical_url.toLowerCase().match(/^https?:\/\/www\.spe\.org+\//))? 2 : 4 );
+
+            if (canonical_url.toLowerCase().match(/^https?:\/\/[^/]+\//)) {
+                msg = '';//looks like a regular web link; we should let the client handle tracking';
+                $('#tracking_type').val('c');
+            }
+            else if (canonical_url.toLowerCase().match(/^mailto:[a-z0-9]/)) {
+                msg = 'looks like an email URL; we should track it server-side';
+                $('#tracking_type').val('s');
+            }
+            else if (canonical_url.toLowerCase().match(/^tel:\+[0-9,p]+$/)) {
+                msg = 'looks like a phone number URL; we should track it server-side';
+                $('#tracking_type').val('s');
+            }
+            else if (canonical_url.toLowerCase().match(/^data:\+[0-9,p]+$/)) {
+                msg = 'looks like a data URL; we should track it server-side';
+                $('#tracking_type').val('s');
+            }
+            else {
+                msg = 'unrecognized URL; please make sure it is valid';
+                $('#tracking_type').val('n');
+            }
+        }
+        else {
+            msg='unsupported scheme; supported target URLs begin with http, https, mailto, tel, data';
+            $('#tracking_type').val('n');
+        }
+    }
+    else {
+        msg='no URL provided; please enter one';
+        $('#tracking_type').val('n');
+    }
+    toggle_pe_sld_for_url(canonical_url);
+    if(!msg.length) return true;
+    return alert(msg);
+}
+
+
+function compute_short_code_suggestion(short_base){
+    short_base = short_base || $('#short_base').val().trim();
+//    var canonical_url = $('#canonical_url').val().trim();
+    var m = ymm();
+    for (l = 1; l <= 18; l++){
+        prospective_short_code = '_' + m + generate_random_string(l, '0123456789acdefghjkmnpqrtvwxy');// omit "u" for safety
+        prospective_short_url = short_base + prospective_short_code;
+        $('#short_code').val(prospective_short_code);
+        if( is_short_url_available(prospective_short_url) ){
+            return prospective_short_code;
+        }
+        else {
+            if(typeof console == 'object' && typeof console.log == 'function') console.log(prospective_short_url + ' is not available.');
+            setTimeout( function(){ compute_short_code_suggestion(short_base);}, 180);
+        }
+    }
+    return null;
+
+    /*
+    if(document.cookie && typeof document.cookie == 'string' && document.cookie.match(/email=/)){
+        var i = document.cookie.match(/email=[^;$]+/)[0].replace(/^email=/,'').substr(0,3);
+        var r = parseInt(Math.random() * 100);
+        if(r.toString().length == 1) r = "0" + r.toString();
+        return m + i + r;
+    }
+    else {
+        return alert('To use this "suggest short code" feature, you must first log in.');
+    }
+    //*/
+}
+
+function vowel(){
+    var mask = 'aeiouy', r = '';//, length = 1;
+//    for (var i = length; i > 0; --i)
+        r += mask[Math.floor(Math.random() * mask.length)];
+    return r;
+}
+
+function random_char(char_class){
+    var c = char_class || '0-9a-zA-Z';
+    var mask = 'aeiouy', r = '';
+}
+
+
+function generate_random_string(i_length, s_chars) {
+    var length = i_length || 1;
+    var chars = s_chars || '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_';
+    var mask = '';
+    if (chars == 'portable') mask += '0123456789acdefghjkmnpqrtuvwxyAEFHKLMNQRTY';
+    else if (chars == 'lowercase_portable') mask += '0123456789acdefghjkmnpqrtuvwxy';
+    else {
+        if (chars.indexOf('a') > -1) mask += 'abcdefghijklmnopqrstuvwxyz';
+        if (chars.indexOf('A') > -1) mask += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        if (chars.indexOf('#') > -1) mask += '0123456789';
+        if (chars.indexOf('!') > -1) mask += '~`!@#$%^&*()_+-={}[]:";\'<>?,./|\\';
+    }
+    var result = '';
+    for (var i = length; i > 0; --i) result += mask[Math.floor(Math.random() * mask.length)];
+    return result;
+}
+
+
+function toggle_opts_show(medium){
+    m = (medium || 'all').toLowerCase();
+    switch(m){
+        case 'email':
+        case 'web':
+        case 'print':
+        case 'social':
+            $('#tracking_medium2 OPTGROUP').hide().filter('.show_for_'+m).show().find('OPTION').data('selectable',true);
+            break;
+        case '-':
+        default:
+            $('#tracking_medium2 OPTGROUP').show().find('OPTION').data('selectable',true);
+            break;
+    }
+}
+
+
+function is_short_url_available(short_url){// returns true if available, false if not, null if the check cannot happen
+    if(typeof short_url == 'undefined'){
+        var b = $('#short_base').val();
+        var c = $('#short_code').val();
+        if( b.length == 0 || c.length == 0) return null;
+        short_url = b + c;
+    }
+    if(typeof short_url != 'string' || short_url.length < 13) return null;// minimum total chars is 13: http://x.yz/a
+    if(short_url.match(/[^a-zA-Z0-9:\/._-]/)) return null;// fail if there are unacceptable characters
+
+    $('#short_url_availability_result').html('');
+    // if(typeof console == 'object' && typeof console.log == 'function') console.log('Checking availability of ' + short_url);
+
+    var $a = $('#availability_indicator_block');
+    $a.css({backgroundColor:'#ffd'});
+
+    return $.ajax({
+        type: "GET",
+        url: short_url + '~',
+        error: function(jqXHR,textStatus,errorThrown){
+            if(typeof console == 'object' && typeof console.log == 'function') console.log(textStatus);
+            if(typeof console == 'object' && typeof console.log == 'function') console.log(errorThrown);
+            $a.css({backgroundColor:'#ecc'});
+            $('#short_url_availability_result').html('<b>ERROR</b>: Unable to determine availability');
+            // if(typeof console == 'object' && typeof console.log == 'function') console.log('ERROR: Unable to determine availability of this short URL');
+            return null;
+        },
+        success: function(response){
+            var r = response;
+            var m = r.substring(0,1) - 0;
+            var a = (m===0);// interpret returned number of matches as boolean availability
+            $a.css({backgroundColor:'#' + (a?'cfd':'fbb')});
+            $('#short_url_availability_result').html('<b>' + short_url + '</b> is ' + (a?'available':'already taken'));
+            if(!a) setTimeout( function(){ compute_short_code_suggestion(); }, 900);
+            // if(typeof console == 'object' && typeof console.log == 'function') console.log('Matches Found: ' + m);
+            // if(typeof console == 'object' && typeof console.log == 'function') console.log('Available? ' + (a?'Yes':'No'));
+            return a;
+        }
+    });
+}
+
+
+function add_days_to_date(days, base_date) {
+    var days = days || 36;
+    var base_date = base_date || new Date();
+    var result = new Date(base_date);
+    result.setDate(result.getDate() + days);
+    return result;
+}
+
+
+function set_end_date_from_campaign_tracking_length(){
+    var now = new Date();
+    var len = $('#campaign_length_days').val() || 36;
+    var end = new Date( now.getTime() + (1000 * 60 * 60 * 24 * len) );
+    return $('#end_date').val(end);
+}
+
+
+$(function() {
+
+
+//    $('.phase4').hide();
+    $('#btn_rebuild_tracking_parameters').hide();
+
+
+    // if the short base was specified by the view or can be determined by the URL then pre-select that option for the user
+{% if short_base_determined %}
+    var current_base = '{{ short_base_determined }}'.replace(/shorten(\/.*|$)/,'');
+{% else %}
+    var current_base = window.location.href.replace(/shorten(\/.*|$)/,'');
+{% endif %}
+    $('#short_base').find('OPTION')
+        .removeProp('selected')
+        .filter('[value="' + current_base + '"]')
+            .prop('selected','selected');
+
+    // every time the short base or the short code is changed, check to see if the new combo is available
+    $('#short_base, #short_base OPTION, #short_code').on('change propertychange',function(){
+        if( $('#short_base OPTION:selected').prop('value').trim().length > 0 || $('#short_code').prop('value').trim().length > 0)
+            is_short_url_available();
+        else return null;
+    });
+
+{#    // allow for manually initiating a check, since my automatic way above is apparently not always getting triggered#}
+{#    $('#check_short_url_availability').on('click',function(){#}
+{#        if( $('#short_base OPTION:selected').prop('value').trim().length > 0 || $('#short_code').prop('value').trim().length > 0)#}
+{#            is_short_url_available();#}
+{#        else return null;#}
+{#    });#}
+
+    // start out with the indicator block being light gray
+    $('#availability_indicator_block').css({backgroundColor:'#eee'});
+
+    // every time the long target URL is changed, re-verify it (and if the short code field is empty then suggest one)
+    $('#canonical_url').on('change propertychange',function(){
+        target_url_verification_helper();
+{#        if( $('#short_code').val()=='' ) $('#short_code').val( compute_short_code_suggestion() );#}
+        if( $('#short_code').val()=='' ) compute_short_code_suggestion();
+        return true;
+    });
+
+    // every time the tracking type is changed, toggle visibility of tracking parameters
+    $('#tracking_type').on('change propertychange',function(){
+        var v=$(this).find(':selected').prop('value');
+        switch(v){
+            case 'c':
+            case 's':
+                return $('#tracking_parameters').slideDown();
+            case 'n':
+            default:
+                return $('#tracking_parameters').slideUp();
+        }
+    });
+
+    // every time the overarching medium is changed, toggle  availability of appropriate options for more specific medium
+    $('#tracking_medium1').on('change propertychange',function(){
+        var v=$(this).find(':selected').prop('value');
+        toggle_opts_show(v);
+        return true;
+    });
+
+    // every time the more specific medium is changed, ensure that the overarching medium matches
+    $('#tracking_medium2 OPTION').on('change propertychange',function(){
+        var c=$(this).parent('OPTGROUP').prop('class').replace(/^show_for_/,'');
+        var $tm1 = $('#tracking_medium1');
+        if( $tm1.val()=='' ) $tm1.find('OPTION').removeProp('selected').filter('[data-show-for="' + c + '"]').prop('selected','selected');;
+        return true;
+    });
+
+{#    // every time the campaign/tracking length is changed, set the end_date accordingly#}
+{#    $('#campaign_length_days, #campaign_length_days OPTION').on('change propertychange',function(){#}
+{#        if( $('#campaign_length_days OPTION:selected').prop('value').trim().length == 0 )#}
+{#            set_end_date_from_campaign_tracking_length();#}
+{#        else return null;#}
+{#    });#}
+
+
+    function build_tracking_string(){
+        var parts = [];
+
+        // source
+        var t_s1 = $('#accounting_code').val();
+        var t_s2 = $('#tracking_source').val();
+        var t_s = ((typeof t_s1=='string' && t_s1.length>0)?t_s1:'') + ' ' + ((typeof t_s2=='string' && t_s2.length>0)?t_s2:'');
+        var t_source = t_s.trim().replace(/ +/g,' ').replace('%20',' ').replace(' ','-');
+        if(t_source.length) parts.push("utm_source=" + encodeURIComponent( t_source ));
+
+        // medium
+        var t_m1 = $('#tracking_medium1').val();
+        var t_m2 = $('#tracking_medium2').val();
+        var t_m3 = slugify( $('#tracking_medium_other').val() );
+        var t_m = ((typeof t_m1=='string' && t_m1.length>0)?t_m1:'') + ' ' + ((typeof t_m2=='string' && t_m2.length>0)?t_m2:'') + ' ' + ((typeof t_m3=='string' && t_m3.length>0)?t_m3:'');
+        var t_medium = t_m.trim().replace(/ +/g,' ').replace('%20',' ').replace(' ','-');
+        if(t_medium.length) parts.push("utm_medium=" + encodeURIComponent( t_medium ));
+
+        // term
+        var t_t1 = $('#tracking_term1').val();
+        var t_t2 = $('#tracking_term2').val();
+        var t_t = ((typeof t_t1=='string' && t_t1.length>0)?t_t1:'') + ' ' + ((typeof t_t2=='string' && t_t2.length>0)?t_t2:'');
+        var t_term = t_t.trim().replace(/ +/g,' ').replace('%20',' ').replace(' ','-');
+        if(t_term.length) parts.push("utm_term=" + encodeURIComponent( t_term ));
+
+        // content
+        var t_c1 = $('#tracking_content1').val();
+        var t_c2 = $('#tracking_content2').val();
+        var t_c = ((typeof t_c1=='string' && t_c1.length>0)?t_c1:'') + ' ' + ((typeof t_c2=='string' && t_c2.length>0)?t_c2:'');
+        var t_content = t_c.trim().replace(/ +/g,' ').replace('%20',' ').replace(' ','-');
+        if(t_content.length) parts.push("utm_content=" + encodeURIComponent( t_content ));
+
+        // campaign
+        var t_campaign = '';
+        t_campaign = $('#tracking_campaign').val() || '';
+        if(t_campaign.length) parts.push("utm_campaign=" + encodeURIComponent( t_campaign.trim().replace('%20',' ').replace(' ','-') ));
+
+//        var t = 'utm_source=' + encodeURIComponent( t_source ) + '&utm_medium=' + encodeURIComponent( t_medium ) + '&utm_term=' + encodeURIComponent( t_term ) + '&utm_content=' + encodeURIComponent( t_content ) + '&utm_campaign=' + encodeURIComponent( t_campaign )
+        var t = parts.join('&');
+
+        $('#tracking_string').val(t);
+    }
+
+    $('#btn_rebuild_tracking_parameters').click(function(){
+        build_tracking_string();
+        $(this).fadeOut();
+    });
+    $('#tracking_source, #tracking_medium1, #tracking_medium2, #tracking_term1, #tracking_term2, #tracking_content1, #tracking_content2, #tracking_campaign').on('change propertychange', function() {
+        $('#btn_rebuild_tracking_parameters').fadeIn();
+    });
+
+{#    $.ajaxSetup({#}
+{#        beforeSend: function(xhr, settings) {#}
+{#            if (!(/^https?:.*/.test(settings.url))) {#}
+{#                // Only send the token to relative URLs i.e. locally.#}
+{#                xhr.setRequestHeader("X-CSRFToken", getCookie('csrftoken'));#}
+{#            }#}
+{#        }#}
+{#    });#}
+
+    //*
+    $('#submit_btn').click(function(ev) {
+        ev.preventDefault();
+        $(this).hide();
+        build_tracking_string();
+
+        if( $('#short_code').val() == '' ){
+//            $('#short_code').val( compute_short_code_suggestion() );
+            compute_short_code_suggestion();
+        }
+
+        $.ajax({
+            type: "POST",
+            url: "/shorten",
+            data: {
+                'short_base' : $('#short_base').val(),
+                'short_code' : $('#short_code').val(),
+                'canonical_url' : $('#canonical_url').val(),
+                'tracking_type' : $('#tracking_type').val(),
+                'tracking_string' : $('#tracking_string').val(),
+                'accounting_code' : $('#accounting_code').val(),
+                'purpose' : $('#purpose').val(),
+                'campaign_length_days' : $('#campaign_length_days').val(),
+                'csrfmiddlewaretoken' : $("input[name=csrfmiddlewaretoken]").val()
+            },
+            success: returnSuccess,
+            dataType: 'json'
+        });
+    });
+    //*/
+});
+
+function ymmddhhmm(){
+    var d=new Date();
+    var y=(("0" + d.getYear()).slice(-1));
+    var mx=d.getMonth() + 1;
+    var mm=("00" + mx).slice(-2);
+    var dd=("00" + d.getDate()).slice(-2);
+    var h=("00" + d.getHours()).slice(-2);
+    var m=("00" + d.getMinutes()).slice(-2);
+    return y + mm + dd + '-' + h + m;
+}
+
+function ymm(date_object){
+    var d = date_object || new Date();
+    var m = d.getMonth() + 1;
+    if(m.toString().length == 1) m = "0" + m.toString();
+    return d.getFullYear().toString().substr(-1,1) + m;
+}
+
+function populateForm(){
+    var ts=ymmddhhmm();
+    $('#canonical_url').val('http://www.spe.org/events/calendar/?search=ATCE#page_anchor_test_' + ts);
+    toggle_pe_sld_for_url();
+    $('#accounting_code').val('TST' + ymm());
+//    $('#short_base').val('http://www.spe.org/go/');
+    $('#tracking_type').val('c');
+    $('#tracking_source').val('Fortune ' + ymm() + ' Companies');
+    $('#tracking_medium1').val('Web');
+    $('#tracking_medium2').val('spe.org_journal-jpt');
+    $('#tracking_medium_other').val( 'Article Detail Page Sidebar - 200x40 banner' );
+//    $('#tracking_string').val('utm_source=Web&utm_medium=TST611-Web-spe.org_journal-jpt&utm_term=&utm_content=&utm_campaign=TST611-Web-spe.org_journal-jpt-article_detailpurposeage_sidebar_200x40_banner');
+    $('#purpose').val('Purpose is to test this system, ' + ts);
+    $('#btn_rebuild_tracking_parameters').trigger('click');
+    $('#canonical_url').focus();
+}
+
+function slugify(raw){
+    var chars_accepted = 900, chars_return = 90;
+    if(typeof raw != 'string' || raw.length > chars_accepted) return false;
+    return raw.toLowerCase().replace(/[^a-z0-9-]/g,'_').replace(/__*/g,'_').replace(/_-?_/,'-').replace(/--*/g,'-').slice(0,chars_return);
+}
+
+function returnSuccess(data, textStatus, jqXHR) {
+  if(data.short_url) {
+    var r='/';
+    if(document.cookie && typeof document.cookie == 'string' && document.cookie.match(/email=/)){
+        var r = document.cookie.match(/email=[^;$]+/)[0].replace(/^email=/,'');
+{#        r = ( ( typeof r=='string' && r.indexOf('@') && r.length > 5) || '' ) + '/';#}
+        if( typeof r=='string' && r.indexOf('@') && r.length > 5) r=false;
+    }
+//    $('#url-result').text("Success: created new short URL: " + data.short_url + " &mdash; <button>" + "/" + data.short_code + "</button>");
+    $('#url_result').html('Success: created new short URL <input id="short_url_created" type="text" style="width:36%" value="' + data.short_url + '" /><br /><ul><li><a href="' + data.short_url + '/">Show Details of Final URL</a></li>' + (r ? '<li><a href="' + data.short_url + '/' + r + '">Email me all the details</a></li><li><a href="' + data.short_url + '_990xL.png">Show me this final URL as a QR code</a></li>' : '') + '</ul>').find('INPUT').focus().select();
+    $('#short_base, #short_code, #canonical_url, #tracking_type, #tracking_string, #accounting_code, #purpose').val('');
+    $('#submit_btn').show();
+  }
+  else {
+    $('#url_result').text("Are you trying to shorten nothingness? A blank URL is already pretty short.");
+  }
+
+}
+</script>
+
+<form method="post">
+
+    <noscript><div><b style="color:red">The auto-population features of this form require javascript.</b></div></noscript>
+    <input type="reset" value=" Clear " onclick="javascript:return clearForm(this.form);" />
+    <span onclick="javascript:return populateForm();"><i>QP: Insert Test Values</i></span>
+
+
+    <div class="panel panel-default">
+        <div class="panel-body">
+            <div class="Xcol-sm-9">
+
+{#                <select name="tracking_medium3x" id="tracking_medium3x" class="q-select">#}
+{#                    <option value="">- Please Select -</option>#}
+{#                    <optgroup label="Web">#}
+{#                        <option value="-"></option>#}
+{#                    </optgroup>#}
+{#                    <optgroup label="Social Media">#}
+{#                        <option value="-"></option>#}
+{#                    </optgroup>#}
+{#                    <optgroup label="Print">#}
+{#                        <option value="Print-AD3V">Third vertical print ad</option>#}
+{#                        <option value="Print-ADFP">Full page print ad</option>#}
+{#                        <option value="Print-ADHH">Half page horizontal print ad</option>#}
+{#                        <option value="Print-ADOTH">Other print ad (square, island, half page vertical</option>#}
+{#                        <option value="Print-ADQP">Quarter page print ad</option>#}
+{#                        <option value="Print-ART">Design (logo, artwork, graphics, etc.)</option>#}
+{#                        <option value="Print-BRO">Brochure</option>#}
+{#                        <option value="Print-CAT">Catalog</option>#}
+{#                        <option value="Print-EXP">Exhibitor Prospectus</option>#}
+{#                        <option value="Print-FLD">Folder</option>#}
+{#                        <option value="Print-FLR">Flyer (full page, half page, etc.)</option>#}
+{#                        <option value="Print-FRM">Form (application, registration, invoice, etc.)</option>#}
+{#                        <option value="Print-MAGCAR">Carrier Sheet</option>#}
+{#                        <option value="Print-OTHCOM">Other company/admin items such as letterhead, cert</option>#}
+{#                        <option value="Print-OTHMKT">Other marketing items such as CD, buckslip, bookma</option>#}
+{#                        <option value="Print-PST">Postcard, postcard mailer</option>#}
+{#                        <option value="Print-PRG">Program</option>#}
+{#                        <option value="Print-PRV">Preview</option>#}
+{#                    </optgroup>#}
+{#                    <optgroup label="Digital/Other">#}
+{#                        <option value="-"></option>#}
+{#                    </optgroup>#}
+{#                </select>#}
+
+{#                <input id="short_base" name="short_base" type="text" class="form-control input-sm" placeholder="http://www.spe.org/go/" />#}
+{#                <br />#}
+
+
+
+
+<div class="form-row field-">
+    <div>
+        <label for="canonical_url"><span class="required" title="Required">*</span> <b>Long URL</b> you want to shorten <small style="font-weight: lighter;">&mdash; PLEASE use canonical!</small></label>
+        <br />
+        <input id="canonical_url" name="canonical_url" type="text" class="form-control input-sm" placeholder="http://www.spe.org/events/calendar/?search=ATCE#page_anchor_test" value="{{ long_url_specified }}" />
+    </div>
+</div>
+
+<fieldset class="module aligned" style="padding: 0 0 0 7.2em;">
+
+    <div class="form-row field-tracking_type">
+        <div>
+            <label for="tracking_type">Tracking Type <small style="font-weight: lighter;">&mdash; is that resource protected behind login, or is there any other reason it requires server-side tracking prior to redirection?</small></label>
+            <br />
+            <select id="tracking_type" name="tracking_type">
+                <option value="">- Please select -</option>
+                <option value="c" selected="selected" title="simply let client do things the normal way">Normal, Client-side tracking</option>
+                <option value="s" title="use a server-side interstitial redirect for tracking">Server-side tracking</option>
+                <option value="n">Do not track at all</option>
+            </select>
+        </div>
+    </div>
+
+
+    <section id="tracking_parameters" class="module aligned" style="padding: 0 0 0 7.2em;">
+
+        <label for="purpose">Purpose of this particular Short URL <small style="font-weight: lighter;">(please describe briefly)</small></label>
+        <input class="form-control input-sm" id="purpose" maxlength="252" name="purpose" type="text">
+
+        <br />
+
+        <label class="required" for="campaign_length_days">How long do you plan to track your campaign's usage of this short URL?</label>
+        <select name="campaign_length_days" id="campaign_length_days">
+            <option value="">- Please select -</option>
+            <option value="3">a couple of days</option>
+            <option value="9">about a week</option>
+            <option value="36" selected="selected">about a month</option>
+            <option value="108">about a quarter</option>
+            <option value="198">about half a year</option>
+        </select>
+
+        <br />
+        <br />
+
+        <label for="accounting_code">Accounting/Time/EZLabor Code:</label>
+{#        <span style="color:#800;" onclick="$('#accounting_code').val();">✖</span>#}
+        <input class="form-control input-sm" id="accounting_code" maxlength="6" name="accounting_code" type="text">
+
+        <br />
+
+        <label for="tracking_medium1"><span class="required" title="Required">*</span> <b>Medium</b> <small style="font-weight: lighter;">&mdash; how/where this special-purpose URL will be disseminated</small></label>
+        <br />
+        <select name="tracking_medium1" id="tracking_medium1" class="q-select">
+            <option value="">- Please select -</option>
+            <option value="Email" data-show-for="email">via email</option>
+            <option value="Web" data-show-for="web">via the web</option>
+            <option value="Print" data-show-for="print">via printed material</option>
+            <option value="Social" data-show-for="social">via social media</option>
+            <option value="-" data-show-for="other">via another avenue</option>
+        </select>
+        <br />
+        <!-- label for="tracking_medium2"><span class="required" title="Required">*</span> <b>Medium</b> -- where will this special-purpose URL be disseminated?</label -->
+        <select name="tracking_medium2" id="tracking_medium2">
+            <option value="">- Please select -</option>
+            <optgroup class="show_for_web" label="Web">
+                <option value="ADBNR" class="old_option">◦ generic ad banner</option>
+                <option value="spe.org">• on SPE.org</option>
+                <option value="spe.org_journal-jpt">• on spe.org JPT</option>
+                <option value="spe.org_journal-ogf">• on spe.org OGF</option>
+                <option value="spe.org_journal-twa">• on spe.org TWA</option>
+                <option value="spe.org_journal">• on another spe.org Journal</option>
+                <option value="onepetro.org">• on OnePetro.org</option>
+                <option value="petrowiki.org">• on PetroWiki.org</option>
+                <option value="otcnet.org">• on OTCnet.org</option>
+                <option value="iptcnet.org">• on IPTCnet.org</option>
+                <option value="store.spe.org">• on spe.org Bookstore</option>
+                <option value="other-internal">• on another SPE website ...</option>
+                <option value="other-external">• on another non-SPE website ...</option>
+            </optgroup>
+            <optgroup class="show_for_social" label="Social Media">
+                <option value="facebook">• on Facebook</option>
+                <option value="twitter">• on Twitter</option>
+                <option value="other-social">• other social media ...</option>
+            </optgroup>
+            <optgroup class="show_for_print" label="Print">
+                <option value="AD3V" class="old_option">◦ Third vertical print ad</option>
+                <option value="ADFP" class="old_option">◦ Full page print ad</option>
+                <option value="ADHH" class="old_option">◦ Half page horizontal print ad</option>
+                <option value="ADOTH" class="old_option">◦ Other print ad (square, island, half page vertical</option>
+                <option value="ADQP" class="old_option">◦ Quarter page print ad</option>
+                <option value="ART" class="old_option">◦ Design (logo, artwork, graphics, etc.)</option>
+                <option value="BRO" class="old_option">◦ Brochure</option>
+                <option value="CAT" class="old_option">◦ Catalog</option>
+                <option value="EXP" class="old_option">◦ Exhibitor Prospectus</option>
+                <option value="FLD" class="old_option">◦ Folder</option>
+                <option value="FLR" class="old_option">◦ Flyer (full page, half page, etc.)</option>
+                <option value="FRM" class="old_option">◦ Form (application, registration, invoice, etc.)</option>
+                <option value="MAGCAR" class="old_option">◦ Carrier Sheet</option>
+                <option value="OTHCOM" class="old_option">◦ Other company/admin items such as letterhead, cert</option>
+                <option value="OTHMKT" class="old_option">◦ Other marketing items such as CD, buckslip, bookma</option>
+                <option value="PST" class="old_option">◦ Postcard, postcard mailer</option>
+                <option value="PRG" class="old_option">◦ Program</option>
+                <option value="PRV" class="old_option">◦ Preview</option>
+                <option value="contact_card">• on contact card or business card</option>
+                <option value="poster">• on a poster</option>
+                <option value="sign">• on a sign</option>
+                <option value="other-print">• on another print piece ...</option>
+            </optgroup>
+            <optgroup class="show_for_other" label="Digital/Other">
+                <option value="usb">• file on a USB stick</option>
+                <option value="cd">• file on a CD</option>
+                <option value="contact_file">• file of contact details (e.g., a .vcf)</option>
+                <option value="guest_wifi">• guest WiFi splash screen</option>
+                <option value="billboard">• billboard</option>
+                <option value="car_wrap">• car wrap</option>
+                <option value="window_decal">• window decal</option>
+                <option value="floor_decal">• floor decal</option>
+                <option value="other-other">• other ...</option>
+            </optgroup>
+        </select>
+        <br />
+
+        <label for="_other"><b>More Detail</b> <small style="font-weight: lighter;">&mdash; totally optional; recommended if you picked &quot;other&quot; above</small></label>
+{#        <span style="color:#800;" onclick="$('#tracking_medium_other').val();">✖</span>#}
+        <input id="tracking_medium_other" name="tracking_medium_other" type="text" class="form-control input-sm clearable" />
+        <br />
+
+        <label for="tracking_source"><span class="required" title="Required">*</span> <b>Source</b> <small style="font-weight: lighter;">&mdash; this is set automatically for web usage (referrer URL)</small></label>
+{#        <span style="color:#800;" onclick="$('#tracking_source').val();">✖</span>#}
+        <input id="tracking_source" name="tracking_source" type="text" class="form-control input-sm clearable" />
+        <br />
+
+        <!-- label for="tracking_string">Tracking Parameters </label -->
+        <input id="tracking_string" name="tracking_string" type="text" class="form-control input-sm borderless" placeholder="_utm1=ab&_utm2=cd&_utm3=ef&_utm4=g" />
+        <span id="btn_rebuild_tracking_parameters">&#8665;</span>
+
+    </section>
+
+<!--
+    <div class="form-row field-short_base">
+        <div>
+            <label class="required" for="short_base">Desired "base" or "prefix" for your short URL:</label>
+            <br />
+            <div class="related-widget-wrapper">
+                <select id="short_base" name="short_base">
+                    <option value="">- Please select -</option>
+                    <option value="http://www.spe.org/go/" selected="selected">Legacy Prefix: <b>www.spe.org/go</b></option>
+{#                    <option value="http://go.spe.org/">Possible Alternate Prefix: <b>go.spe.org</b></option>#}
+{#                    <option value="http://2s.pe/">Tiny Prefix for Internal Destinations ("to" SPE): <b>2s.pe</b></option>#}
+{#                    <option value="http://4s.pe/">Tiny Prefix for External Destinations ("for" SPE): <b>4s.pe</b></option>#}
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="form-row field-short_code">
+        <div>
+            <label class="required" for="short_code">Desired "short code" for your short URL:</label>
+            <input id="short_code" name="short_code" type="text" class="vTextField" maxlength="50" placeholder="atce" >
+        </div>
+    </div>
+-->
+
+</fieldset>
+
+<div class="form-row field-short_base">
+    <div>
+        <label class="required" for="short_base">Short URL to create:</label>
+        <br />
+        <div id="availability_indicator_block">
+            <select id="short_base" name="short_base">
+<!--
+        ("http://2s.pe/","2s.pe"),
+        ("http://4s.pe/","4s.pe"),
+        ("http://go.spe.org/","GO.spe.org"),
+        ("http://www.spe.org/go/","www.SPE.org/go"),
+        ("http://go.iptcnet.org/","GO.IPTCnet.org"),
+        ("http://www.iptcnet.org/go/","www.IPTCnet.org/go"),
+        ("http://go.otcnet.org/","GO.OTCnet.org"),
+        ("http://www.otcnet.org/go/","www.OTCnet.org/go"),
+        ("http://go.otcbrasil.org/","GO.OTCBrasil.org"),
+        ("http://www.otcbrasil.org/go/","www.OTCBrasil.org/go"),
+        ("http://go.otcasia.org/","GO.OTCAsia.org"),
+        ("http://www.otcasia.org/go/","www.OTCAsia.org/go"),
+-->
+                <option value="">- Please select -</option>
+                <optgroup class="phase0 phase1" label="TESTING ONLY">
+                    <option class="phase0" value="http://bfountain-mac.spe.org:8000/">bfountain:8000</option>
+                    <option class="phase1" value="http://bfountain-mac.spe.org/">bfountain:80</option>
+                </optgroup>
+                <optgroup class="phase4" label="Phase 4 Prefixes">
+                    <option class="phase4" value="http://2s.pe/">2s.pe</option>
+                    <option class="phase4" value="http://4s.pe/">4s.pe</option>
+                </optgroup>
+                <optgroup class="phase2" label="Phase 2 Prefixes">
+                    <option class="phase2" value="http://go.spe.org/">GO.SPE.org</option>
+                    <option class="phase2" value="http://go.iptcnet.org/">GO.IPTCnet.org</option>
+                </optgroup>
+                <optgroup class="phase3" label="Phase 3 Prefixes">
+                    <option class="phase3" value="http://www.spe.org/go/" selected="selected">Legacy Prefix: www.SPE.org/go</option>
+                    <!-- option class="phase2" value="http://go.iptcnet.org/">GO.IPTCnet.org</option -->
+                    <option class="phase3" value="http://www.iptcnet.org/go/">www.IPTCnet.org/go</option>
+                    <option class="phase3" value="http://go.otcnet.org/">GO.OTCnet.org</option>
+                    <option class="phase3" value="http://www.otcnet.org/go/">www.OTCnet.org/go</option>
+                    <option class="phase3" value="http://go.otcbrasil.org/">GO.OTCBrasil.org</option>
+                    <option class="phase3" value="http://www.otcbrasil.org/go/">www.OTCBrasil.org/go</option>
+                    <option class="phase3" value="http://go.otcasia.org/">GO.OTCAsia.org</option>
+                    <option class="phase3" value="http://www.otcasia.org/go/">www.OTCAsia.org/go</option>
+                </optgroup>
+            </select>
+
+{#            <span style="color:#005;margin:5px;" onclick="$('#short_code').val( compute_short_code_suggestion() );">&#x1F3A9;</span>#}
+            <span style="color:#005;margin:5px;" onclick="compute_short_code_suggestion();">&#x1F3A9;</span>
+
+            <input id="short_code" name="short_code" type="text" class="form-control input-sm" style="display:inline-block;width:36%" maxlength="50" placeholder="join" value="{{ short_code_specified }}" >
+
+{#            <span id="check_short_url_availability">Check Availability</span> #}
+            <span id="short_url_availability_result"></span>
+        </div>
+
+    </div>
+</div>
+
+
+<button id="submit_btn" class="btn btn-primary"> Shorten </button></p>
+{% csrf_token %}
+
+
+            </div>
+        </div>
+        <div class="panel-footer"><span id="url_result">Enter the URL above, and optionally customize the tracking parameters</span></div>
+    </div>
+</form>
+{% endblock %}
